@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>魔法貓咪快跑</title>
+	<link rel="stylesheet" href="dino-game.css">
+</head>
+<body>
+	<main class="game-shell">
+		<header class="game-header">
+			<div>
+				<p class="eyebrow">HTML5 RUNNER</p>
+				<h1>魔法貓咪快跑</h1>
+			</div>
+			<div class="score-board" aria-label="遊戲分數">
+				<div><span>分數</span><strong id="score">00000</strong></div>
+				<div><span>最高分</span><strong id="high-score">00000</strong></div>
+			</div>
+		</header>
+
+		<section class="game-card" aria-label="魔法貓咪遊戲區域">
+			<canvas id="game-canvas" width="900" height="320" tabindex="0" aria-label="魔法貓咪遊戲畫布"></canvas>
+			<div id="status" class="status" aria-live="polite">按空白鍵開始</div>
+		</section>
+
+		<div class="game-controls">
+			<p>空白鍵／上方向鍵跳躍　↓ 蹲下　點擊畫面開始或跳躍</p>
+			<button id="restart-button" type="button">重新開始</button>
+		</div>
+	</main>
+
+	<script src="dino-game.js" defer></script>
+</body>
+</html>
