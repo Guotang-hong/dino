@@ -10,6 +10,8 @@ const WORLD_HEIGHT = canvas.height;
 const GROUND_Y = 260;
 const HIGH_SCORE_KEY = 'dino-game-high-score';
 const dino = { x: 92, y: GROUND_Y - 54, width: 45, height: 54, velocityY: 0, isDucking: false };
+const heroImage = new Image();
+heroImage.src = './45.gif';
 let obstacles = [];
 let powerups = [];
 let state = 'ready';
@@ -260,30 +262,89 @@ function drawMountains(nightAmount) {
 }
 
 function drawDino() {
-  const height = dino.isDucking ? 31 : dino.height;
-  const top = dino.y + dino.height - height;
-  context.fillStyle = mixColor('#f29a67', '#f6c19a', getNightAmount());
-  context.fillRect(dino.x + 5, top + 12, dino.width - 10, height - 12);
-  context.fillRect(dino.x + 14, top + 3, 32, 27);
-  context.fillStyle = '#f29a67';
+  const runPhase = state === 'running' ? performance.now() / 120 : 0;
+  const bob = state === 'running' ? Math.sin(runPhase) * 3.2 : 0;
+  const stride = state === 'running' ? Math.sin(runPhase * 2) * 5 : 0;
+  const tilt = Math.max(-0.26, Math.min(0.26, dino.velocityY * 0.0008));
+  const imageWidth = dino.isDucking ? 70 : 90;
+  const imageHeight = dino.isDucking ? 52 : 90;
+  const drawX = dino.x - 18 + (dino.isDucking ? 4 : 0) + stride;
+  const drawY = dino.y - 18 + bob;
+
+  context.save();
+  context.translate(drawX + imageWidth / 2, drawY + imageHeight / 2);
+  context.rotate(tilt);
+  context.translate(-(drawX + imageWidth / 2), -(drawY + imageHeight / 2));
+
+  context.fillStyle = 'rgba(255, 212, 100, 0.22)';
   context.beginPath();
-  context.moveTo(dino.x + 16, top + 8);
-  context.lineTo(dino.x + 16, top - 8);
-  context.lineTo(dino.x + 25, top + 2);
-  context.closePath();
+  context.ellipse(dino.x + 25, dino.y + dino.height + 10, 28 + Math.abs(stride) * 0.5, 12, 0, 0, Math.PI * 2);
   context.fill();
-  context.beginPath();
-  context.moveTo(dino.x + 37, top + 2);
-  context.lineTo(dino.x + 46, top - 8);
-  context.lineTo(dino.x + 46, top + 10);
-  context.closePath();
-  context.fill();
-  context.fillStyle = '#fff5dc';
-  context.fillRect(dino.x + 35, top + 11, 5, 5);
-  context.fillStyle = '#3b2341';
-  context.fillRect(dino.x + 42, top + 24, 9, 3);
-  context.fillRect(dino.x + 9, top + height - 4, 7, 8);
-  context.fillRect(dino.x + 28, top + height - 4, 7, 8);
+
+  if (state === 'running') {
+    const swing = Math.sin(runPhase * 2);
+    const leftLegLift = swing * 18;
+    const rightLegLift = -swing * 18;
+    const baseY = dino.y + dino.height - 2;
+
+    context.save();
+    context.translate(dino.x + 16, baseY + 4);
+    context.rotate((leftLegLift / 24) - 0.25);
+    context.fillStyle = '#ffd96d';
+    context.fillRect(-4, 0, 12, 28);
+    context.fillStyle = '#f7c03c';
+    context.fillRect(-10, 24, 22, 8);
+    context.restore();
+
+    context.save();
+    context.translate(dino.x + 38, baseY + 4);
+    context.rotate((rightLegLift / 24) + 0.25);
+    context.fillStyle = '#ffd96d';
+    context.fillRect(-4, 0, 12, 28);
+    context.fillStyle = '#f7c03c';
+    context.fillRect(-10, 24, 22, 8);
+    context.restore();
+
+    context.strokeStyle = 'rgba(255, 240, 170, 0.9)';
+    context.lineWidth = 2;
+    context.beginPath();
+    context.arc(dino.x + 24 + stride * 0.2, dino.y + 22 + bob * 0.4, 18 + Math.sin(runPhase) * 5, 0, Math.PI * 2);
+    context.stroke();
+  }
+
+  if (heroImage && heroImage.complete && heroImage.naturalWidth > 0) {
+    context.shadowBlur = 18;
+    context.shadowColor = 'rgba(255, 200, 120, 0.85)';
+    context.drawImage(heroImage, drawX, drawY, imageWidth, imageHeight);
+    context.shadowBlur = 0;
+  } else {
+    const height = dino.isDucking ? 31 : dino.height;
+    const top = dino.y + dino.height - height;
+    context.fillStyle = mixColor('#f29a67', '#f6c19a', getNightAmount());
+    context.fillRect(dino.x + 5, top + 12, dino.width - 10, height - 12);
+    context.fillRect(dino.x + 14, top + 3, 32, 27);
+    context.fillStyle = '#f29a67';
+    context.beginPath();
+    context.moveTo(dino.x + 16, top + 8);
+    context.lineTo(dino.x + 16, top - 8);
+    context.lineTo(dino.x + 25, top + 2);
+    context.closePath();
+    context.fill();
+    context.beginPath();
+    context.moveTo(dino.x + 37, top + 2);
+    context.lineTo(dino.x + 46, top - 8);
+    context.lineTo(dino.x + 46, top + 10);
+    context.closePath();
+    context.fill();
+    context.fillStyle = '#fff5dc';
+    context.fillRect(dino.x + 35, top + 11, 5, 5);
+    context.fillStyle = '#3b2341';
+    context.fillRect(dino.x + 42, top + 24, 9, 3);
+    context.fillRect(dino.x + 9, top + height - 4, 7, 8);
+    context.fillRect(dino.x + 28, top + height - 4, 7, 8);
+  }
+
+  context.restore();
 }
 
 function drawObstacle(obstacle) {
