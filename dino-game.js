@@ -18,11 +18,11 @@ const WORLD_HEIGHT = canvas.height;
 const GROUND_Y = 260;
 const HIGH_SCORE_KEY = 'dino-game-high-score';
 const dino = { x: 92, y: GROUND_Y - 54, width: 45, height: 54, velocityY: 0, isDucking: false };
-const heroImage = new Image();
-heroImage.src = './45.gif';
+const heroImage = document.querySelector('#hero-sprite');
 let obstacles = [];
 let powerups = [];
 let coinsOnTrack = [];
+let jumpEffects = [];
 let state = 'ready';
 let score = 0;
 let coinCount = 0;
@@ -126,6 +126,7 @@ function resetGame() {
   obstacles = [];
   powerups = [];
   coinsOnTrack = [];
+  jumpEffects = [];
   coinCount = 0;
   powerupTimer = 0;
   nextPowerup = 5;
@@ -142,10 +143,45 @@ function resetGame() {
   updatePauseButton();
 }
 
+function emitJumpEffect(isLanding = false) {
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const particleCount = reducedMotion ? 5 : isLanding ? 8 : 12;
+  const originX = dino.x + 24;
+  const originY = GROUND_Y - 2;
+
+  for (let index = 0; index < particleCount; index += 1) {
+    const spread = Math.PI + (Math.random() - .5) * Math.PI;
+    const speed = isLanding ? 45 + Math.random() * 90 : 65 + Math.random() * 125;
+    const lifetime = isLanding ? .3 : .42;
+    jumpEffects.push({
+      type: 'spark',
+      x: originX + (Math.random() - .5) * 18,
+      y: originY,
+      velocityX: Math.cos(spread) * speed,
+      velocityY: -Math.random() * speed,
+      life: lifetime,
+      lifetime,
+      radius: 2 + Math.random() * 3,
+      color: isLanding ? '#c4d8b5' : '#ffd76b',
+    });
+  }
+
+  if (!isLanding && !reducedMotion) {
+    jumpEffects.push({
+      type: 'ring',
+      x: originX,
+      y: originY,
+      life: .32,
+      lifetime: .32,
+    });
+  }
+}
+
 function jump() {
   if (state === 'ready' || state === 'game-over') startGame();
   if (dino.y >= GROUND_Y - dino.height - 1) {
     dino.velocityY = -780;
+    emitJumpEffect();
     playSound(520, .08, 'square', .035);
   }
 }
@@ -242,6 +278,15 @@ function collectCoin() {
 function update(deltaTime) {
   if (state !== 'running') return;
   const delta = Math.min(deltaTime, .04);
+  jumpEffects.forEach((effect) => {
+    effect.life -= delta;
+    if (effect.type === 'spark') {
+      effect.velocityY += 260 * delta;
+      effect.x += effect.velocityX * delta;
+      effect.y += effect.velocityY * delta;
+    }
+  });
+  jumpEffects = jumpEffects.filter((effect) => effect.life > 0);
   activePowerups.shield = Math.max(0, activePowerups.shield - delta);
   activePowerups.slow = Math.max(0, activePowerups.slow - delta);
   activePowerups.magnet = Math.max(0, activePowerups.magnet - delta);
@@ -251,8 +296,10 @@ function update(deltaTime) {
   dino.velocityY += 2100 * delta;
   dino.y += dino.velocityY * delta;
   if (dino.y > GROUND_Y - dino.height) {
+    const landed = dino.velocityY > 0;
     dino.y = GROUND_Y - dino.height;
     dino.velocityY = 0;
+    if (landed) emitJumpEffect(true);
   }
   spawnTimer += delta;
   if (spawnTimer >= nextSpawn) {
@@ -393,11 +440,15 @@ function drawDino() {
   }
 
   if (heroImage && heroImage.complete && heroImage.naturalWidth > 0) {
-    context.shadowBlur = 18;
-    context.shadowColor = 'rgba(255, 200, 120, 0.85)';
-    context.drawImage(heroImage, drawX, drawY, imageWidth, imageHeight);
-    context.shadowBlur = 0;
+    const canvasScale = canvas.getBoundingClientRect().width / WORLD_WIDTH;
+    heroImage.style.left = `${drawX * canvasScale}px`;
+    heroImage.style.top = `${drawY * canvasScale}px`;
+    heroImage.style.width = `${imageWidth * canvasScale}px`;
+    heroImage.style.height = `${imageHeight * canvasScale}px`;
+    heroImage.style.transform = `rotate(${tilt}rad)`;
+    heroImage.style.visibility = 'visible';
   } else {
+    heroImage.style.visibility = 'hidden';
     const height = dino.isDucking ? 31 : dino.height;
     const top = dino.y + dino.height - height;
     context.fillStyle = mixColor('#f29a67', '#f6c19a', getNightAmount());
@@ -476,6 +527,25 @@ function drawCoin(coin) {
   context.stroke();
 }
 
+function drawJumpEffect(effect) {
+  const progress = 1 - effect.life / effect.lifetime;
+  context.save();
+  context.globalAlpha = Math.max(0, effect.life / effect.lifetime);
+  if (effect.type === 'ring') {
+    context.strokeStyle = '#ffe39a';
+    context.lineWidth = 3 * (1 - progress) + 1;
+    context.beginPath();
+    context.ellipse(effect.x, effect.y, 10 + progress * 38, 3 + progress * 10, 0, 0, Math.PI * 2);
+    context.stroke();
+  } else {
+    context.fillStyle = effect.color;
+    context.beginPath();
+    context.arc(effect.x, effect.y, effect.radius * (1 - progress * .45), 0, Math.PI * 2);
+    context.fill();
+  }
+  context.restore();
+}
+
 function draw() {
   const nightAmount = getNightAmount();
   context.fillStyle = mixColor('#b7e2e6', '#172e45', nightAmount);
@@ -499,6 +569,7 @@ function draw() {
   context.fillStyle = mixColor('#6a7b80', '#9ab2ac', nightAmount);
   for (let x = -((score * speed / 60) % 70); x < WORLD_WIDTH; x += 70) context.fillRect(x, GROUND_Y + 15, 34, 3);
   drawDino();
+  jumpEffects.forEach(drawJumpEffect);
   obstacles.forEach(drawObstacle);
   powerups.forEach(drawPowerup);
   coinsOnTrack.forEach(drawCoin);

@@ -31,7 +31,9 @@ h1 { margin: 0; font-size: 48px; line-height: 1; }
 .score-board > div:last-child strong { color: var(--gold); }
 .game-card { position: relative; overflow: hidden; border: 2px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 8px 8px 0 rgba(7, 18, 19, .44); }
 #game-canvas { display: block; width: 100%; height: auto; cursor: pointer; outline: none; touch-action: manipulation; }
+.hero-sprite { position: absolute; z-index: 1; display: block; object-fit: fill; pointer-events: none; filter: drop-shadow(0 0 14px rgba(255, 200, 120, .8)); }
 .status { position: absolute; top: 46%; right: 0; left: 0; padding: 0 12px; text-align: center; color: var(--ink); font: 700 17px "Trebuchet MS", sans-serif; text-shadow: 0 2px 8px #132525; pointer-events: none; }
+.status { z-index: 2; }
 .game-controls { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; color: var(--muted); font: 14px "Trebuchet MS", sans-serif; }
 .game-controls p { margin: 0; }
 .control-buttons { display: flex; gap: 8px; }
