@@ -2,8 +2,16 @@ const canvas = document.querySelector('#game-canvas');
 const context = canvas.getContext('2d');
 const scoreElement = document.querySelector('#score');
 const highScoreElement = document.querySelector('#high-score');
+const coinCountElement = document.querySelector('#coin-count');
 const statusElement = document.querySelector('#status');
 const restartButton = document.querySelector('#restart-button');
+const pauseButton = document.querySelector('#pause-button');
+const soundButton = document.querySelector('#sound-button');
+const jumpButton = document.querySelector('#jump-button');
+const duckButton = document.querySelector('#duck-button');
+const landscapeButton = document.querySelector('#landscape-button');
+const pickupSound = new Audio('./poka01.mp3');
+pickupSound.preload = 'auto';
 
 const WORLD_WIDTH = canvas.width;
 const WORLD_HEIGHT = canvas.height;
@@ -14,9 +22,11 @@ const heroImage = new Image();
 heroImage.src = './45.gif';
 let obstacles = [];
 let powerups = [];
+let coinsOnTrack = [];
 let state = 'ready';
 let score = 0;
-let highScore = Number.parseInt(localStorage.getItem(HIGH_SCORE_KEY), 10) || 0;
+let coinCount = 0;
+let highScore = loadHighScore();
 let speed = 350;
 let spawnTimer = 0;
 let nextSpawn = 1;
@@ -24,6 +34,9 @@ let previousTime = 0;
 let audioContext;
 let powerupTimer = 0;
 let nextPowerup = 5;
+let coinTimer = 0;
+let nextCoinSpawn = 2.5;
+let isMuted = false;
 const activePowerups = { shield: 0, slow: 0, magnet: 0 };
 const powerupLabels = { shield: '護盾啟動', slow: '時間減速', magnet: '磁鐵加分' };
 
@@ -31,18 +44,37 @@ function formatScore(value) {
   return String(Math.floor(value)).padStart(5, '0');
 }
 
+function loadHighScore() {
+  try {
+    return Number.parseInt(localStorage.getItem(HIGH_SCORE_KEY), 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function saveHighScore(value) {
+  try {
+    localStorage.setItem(HIGH_SCORE_KEY, String(value));
+  } catch {
+    // The game remains playable when browser storage is unavailable.
+  }
+}
+
 function updateScoreDisplay() {
   scoreElement.textContent = formatScore(score);
   highScoreElement.textContent = formatScore(highScore);
+  coinCountElement.textContent = String(coinCount).padStart(3, '0');
 }
 
 function ensureAudio() {
-  if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return;
+  if (!audioContext) audioContext = new AudioContextClass();
   if (audioContext.state === 'suspended') audioContext.resume();
 }
 
 function playSound(frequency, duration, type = 'sine', volume = .04) {
-  if (!audioContext) return;
+  if (isMuted || !audioContext) return;
   const oscillator = audioContext.createOscillator();
   const gain = audioContext.createGain();
   const now = audioContext.currentTime;
@@ -61,7 +93,28 @@ function startGame(withJump = false) {
   ensureAudio();
   state = 'running';
   statusElement.textContent = '';
+  updatePauseButton();
   if (withJump) jump();
+}
+
+function updatePauseButton() {
+  const canPause = state === 'running' || state === 'paused';
+  pauseButton.disabled = !canPause;
+  pauseButton.textContent = state === 'paused' ? '繼續' : '暫停';
+}
+
+function togglePause() {
+  if (state === 'running') {
+    state = 'paused';
+    dino.isDucking = false;
+    statusElement.textContent = '已暫停';
+  } else if (state === 'paused') {
+    state = 'running';
+    statusElement.textContent = '';
+  } else {
+    return;
+  }
+  updatePauseButton();
 }
 
 function resetGame() {
@@ -72,8 +125,12 @@ function resetGame() {
   nextSpawn = 1;
   obstacles = [];
   powerups = [];
+  coinsOnTrack = [];
+  coinCount = 0;
   powerupTimer = 0;
   nextPowerup = 5;
+  coinTimer = 0;
+  nextCoinSpawn = 2.5;
   activePowerups.shield = 0;
   activePowerups.slow = 0;
   activePowerups.magnet = 0;
@@ -82,6 +139,7 @@ function resetGame() {
   dino.isDucking = false;
   statusElement.textContent = '按空白鍵開始';
   updateScoreDisplay();
+  updatePauseButton();
 }
 
 function jump() {
@@ -113,6 +171,19 @@ function spawnPowerup() {
   nextPowerup = 7 + Math.random() * 5;
 }
 
+function spawnCoins() {
+  const baseY = 150 + Math.random() * 76;
+  for (let index = 0; index < 3; index += 1) {
+    coinsOnTrack.push({
+      x: WORLD_WIDTH + 20 + index * 36,
+      y: baseY + Math.sin(index * .9) * 16,
+      width: 24,
+      height: 24,
+    });
+  }
+  nextCoinSpawn = 3 + Math.random() * 2.5;
+}
+
 function getDinoBox() {
   const height = dino.isDucking ? 31 : dino.height;
   return { x: dino.x + 7, y: dino.y + dino.height - height + 5, width: dino.width - 12, height: height - 8 };
@@ -126,6 +197,10 @@ function getPowerupBox(powerup) {
   return { x: powerup.x + 2, y: powerup.y + 2, width: powerup.width - 4, height: powerup.height - 4 };
 }
 
+function getCoinBox(coin) {
+  return { x: coin.x + 4, y: coin.y + 4, width: coin.width - 8, height: coin.height - 8 };
+}
+
 function intersects(first, second) {
   // AABB：兩個矩形在水平與垂直方向都重疊時，代表發生碰撞。
   return first.x < second.x + second.width && first.x + first.width > second.x && first.y < second.y + second.height && first.y + first.height > second.y;
@@ -133,22 +208,35 @@ function intersects(first, second) {
 
 function endGame() {
   state = 'game-over';
+  dino.isDucking = false;
   playSound(130, .3, 'sawtooth', .06);
   if (score > highScore) {
     highScore = Math.floor(score);
-    localStorage.setItem(HIGH_SCORE_KEY, String(highScore));
+    saveHighScore(highScore);
   }
   statusElement.textContent = 'GAME OVER｜按空白鍵或點擊重新開始';
   updateScoreDisplay();
+  updatePauseButton();
 }
 
 function collectPowerup(powerup) {
   activePowerups[powerup.type] = 6;
-  playSound(760, .14, 'triangle', .05);
+  playPickupSound();
   statusElement.textContent = powerupLabels[powerup.type];
   window.setTimeout(() => {
     if (state === 'running') statusElement.textContent = '';
   }, 700);
+}
+
+function playPickupSound() {
+  if (isMuted) return;
+  pickupSound.currentTime = 0;
+  pickupSound.play().catch(() => {});
+}
+
+function collectCoin() {
+  coinCount += 1;
+  playPickupSound();
 }
 
 function update(deltaTime) {
@@ -176,10 +264,16 @@ function update(deltaTime) {
     powerupTimer = 0;
     spawnPowerup();
   }
+  coinTimer += delta;
+  if (coinTimer >= nextCoinSpawn) {
+    coinTimer = 0;
+    spawnCoins();
+  }
   const movementSpeed = speed * (activePowerups.slow > 0 ? .55 : 1);
   obstacles.forEach((obstacle) => { obstacle.x -= movementSpeed * delta; });
   obstacles = obstacles.filter((obstacle) => obstacle.x + obstacle.width > -20);
   powerups.forEach((powerup) => { powerup.x -= movementSpeed * delta; });
+  coinsOnTrack.forEach((coin) => { coin.x -= movementSpeed * delta; });
   const dinoBox = getDinoBox();
   powerups = powerups.filter((powerup) => {
     if (intersects(dinoBox, getPowerupBox(powerup))) {
@@ -187,6 +281,13 @@ function update(deltaTime) {
       return false;
     }
     return powerup.x + powerup.width > -20;
+  });
+  coinsOnTrack = coinsOnTrack.filter((coin) => {
+    if (intersects(dinoBox, getCoinBox(coin))) {
+      collectCoin();
+      return false;
+    }
+    return coin.x + coin.width > -20;
   });
   const hitObstacle = obstacles.find((obstacle) => intersects(dinoBox, getObstacleBox(obstacle)));
   if (hitObstacle && activePowerups.shield > 0) {
@@ -262,10 +363,12 @@ function drawMountains(nightAmount) {
 }
 
 function drawDino() {
-  const runPhase = state === 'running' ? performance.now() / 120 : 0;
-  const bob = state === 'running' ? Math.sin(runPhase) * 3.2 : 0;
-  const stride = state === 'running' ? Math.sin(runPhase * 2) * 5 : 0;
-  const tilt = Math.max(-0.26, Math.min(0.26, dino.velocityY * 0.0008));
+  const isGrounded = dino.y >= GROUND_Y - dino.height - 1;
+  const isRunning = state === 'running' && isGrounded && !dino.isDucking;
+  const runPhase = isRunning ? performance.now() / 120 : 0;
+  const bob = isRunning ? Math.sin(runPhase) * 3.2 : 0;
+  const stride = isRunning ? Math.sin(runPhase * 2) * 5 : 0;
+  const tilt = dino.isDucking ? 0 : Math.max(-0.26, Math.min(0.26, dino.velocityY * 0.0008));
   const imageWidth = dino.isDucking ? 70 : 90;
   const imageHeight = dino.isDucking ? 52 : 90;
   const drawX = dino.x - 18 + (dino.isDucking ? 4 : 0) + stride;
@@ -282,29 +385,6 @@ function drawDino() {
   context.fill();
 
   if (state === 'running') {
-    const swing = Math.sin(runPhase * 2);
-    const leftLegLift = swing * 18;
-    const rightLegLift = -swing * 18;
-    const baseY = dino.y + dino.height - 2;
-
-    context.save();
-    context.translate(dino.x + 16, baseY + 4);
-    context.rotate((leftLegLift / 24) - 0.25);
-    context.fillStyle = '#ffd96d';
-    context.fillRect(-4, 0, 12, 28);
-    context.fillStyle = '#f7c03c';
-    context.fillRect(-10, 24, 22, 8);
-    context.restore();
-
-    context.save();
-    context.translate(dino.x + 38, baseY + 4);
-    context.rotate((rightLegLift / 24) + 0.25);
-    context.fillStyle = '#ffd96d';
-    context.fillRect(-4, 0, 12, 28);
-    context.fillStyle = '#f7c03c';
-    context.fillRect(-10, 24, 22, 8);
-    context.restore();
-
     context.strokeStyle = 'rgba(255, 240, 170, 0.9)';
     context.lineWidth = 2;
     context.beginPath();
@@ -381,6 +461,21 @@ function drawPowerup(powerup) {
   context.textBaseline = 'alphabetic';
 }
 
+function drawCoin(coin) {
+  const centerX = coin.x + coin.width / 2;
+  const centerY = coin.y + coin.height / 2;
+  const shine = .65 + Math.abs(Math.sin(performance.now() / 180 + coin.x * .03)) * .35;
+  context.fillStyle = '#f4a928';
+  context.beginPath();
+  context.arc(centerX, centerY, 12, 0, Math.PI * 2);
+  context.fill();
+  context.strokeStyle = `rgba(255, 240, 166, ${shine})`;
+  context.lineWidth = 3;
+  context.beginPath();
+  context.ellipse(centerX, centerY, 5, 8, 0, 0, Math.PI * 2);
+  context.stroke();
+}
+
 function draw() {
   const nightAmount = getNightAmount();
   context.fillStyle = mixColor('#b7e2e6', '#172e45', nightAmount);
@@ -406,6 +501,7 @@ function draw() {
   drawDino();
   obstacles.forEach(drawObstacle);
   powerups.forEach(drawPowerup);
+  coinsOnTrack.forEach(drawCoin);
   if (activePowerups.shield > 0) {
     context.strokeStyle = '#4d9de0';
     context.lineWidth = 4;
@@ -425,6 +521,11 @@ function gameLoop(timestamp) {
 }
 
 function handleKeyDown(event) {
+  if (event.repeat) return;
+  if (event.code === 'KeyP' || event.code === 'Escape') {
+    togglePause();
+    return;
+  }
   if (event.code === 'Space' || event.code === 'ArrowUp') {
     event.preventDefault();
     jump();
@@ -439,6 +540,39 @@ function handleKeyUp(event) {
 document.addEventListener('keydown', handleKeyDown);
 document.addEventListener('keyup', handleKeyUp);
 canvas.addEventListener('pointerdown', () => jump());
+pauseButton.addEventListener('click', togglePause);
+soundButton.addEventListener('click', () => {
+  isMuted = !isMuted;
+  soundButton.textContent = isMuted ? '音效：關' : '音效：開';
+  soundButton.setAttribute('aria-pressed', String(!isMuted));
+});
+jumpButton.addEventListener('pointerdown', (event) => {
+  event.preventDefault();
+  jump();
+});
+duckButton.addEventListener('pointerdown', (event) => {
+  event.preventDefault();
+  setDucking(true);
+});
+landscapeButton.addEventListener('click', async () => {
+  try {
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      await document.documentElement.requestFullscreen();
+    }
+  } catch {
+    // Fullscreen can be unavailable in embedded browsers.
+  }
+  try {
+    if (screen.orientation?.lock) await screen.orientation.lock('landscape');
+  } catch {
+    // Unsupported browsers can still be rotated manually.
+  }
+});
+document.addEventListener('pointerup', () => setDucking(false));
+document.addEventListener('pointercancel', () => setDucking(false));
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && state === 'running') togglePause();
+});
 restartButton.addEventListener('click', () => { resetGame(); startGame(); });
 resetGame();
 requestAnimationFrame(gameLoop);
